@@ -17,41 +17,40 @@ public:
 
   void start()
   {
-    read_message();
+    std::cout << "New Client is connected!: "<< std::endl;
+    do_read();
   }
 
 private:
-  void read_message()
+  void do_read()
   {
     auto self(shared_from_this());
-    boost::asio::async_read_until(socket_, buffer_, "\r\n",
+    socket_.async_read_some(boost::asio::buffer(data_, max_length),
         [this, self](boost::system::error_code ec, std::size_t length)
         {
           if (!ec)
           {
-            std::istream is(&buffer_);
-            std::string message(std::istreambuf_iterator<char>(is), {});
-            std::cout << "Received: " << message << std::endl;
-            write_message(message);
+            do_write(length);
           }
         });
   }
 
-  void write_message(const std::string& message)
+  void do_write(std::size_t length)
   {
     auto self(shared_from_this());
-    boost::asio::async_write(socket_, boost::asio::buffer(message),
-        [this, self, message](boost::system::error_code ec, std::size_t /*length*/)
+    boost::asio::async_write(socket_, boost::asio::buffer(data_, length),
+        [this, self](boost::system::error_code ec, std::size_t /*length*/)
         {
           if (!ec)
           {
-            read_message();
+            do_read();
           }
         });
   }
 
   tcp::socket socket_;
-  boost::asio::streambuf buffer_;
+  enum { max_length = 1024 };
+  char data_[max_length];
 };
 
 class server
@@ -60,11 +59,11 @@ public:
   server(boost::asio::io_context& io_context, short port)
     : acceptor_(io_context, tcp::endpoint(tcp::v4(), port))
   {
-    accept();
+    do_accept();
   }
 
 private:
-  void accept()
+  void do_accept()
   {
     acceptor_.async_accept(
         [this](boost::system::error_code ec, tcp::socket socket)
@@ -74,7 +73,7 @@ private:
             std::make_shared<session>(std::move(socket))->start();
           }
 
-          accept();
+          do_accept();
         });
   }
 
@@ -83,17 +82,24 @@ private:
 
 int main(int argc, char* argv[])
 {
-  if (argc != 2)
+  try
   {
-    std::cerr << "Usage: chat_server <port>\n";
-    return 1;
+    if (argc != 2)
+    {
+      std::cerr << "Usage: async_tcp_echo_server <port>\n";
+      return 1;
+    }
+
+    boost::asio::io_context io_context;
+
+    server s(io_context, 8080);
+
+    io_context.run();
   }
-
-  boost::asio::io_context io_context;
-
-  server s(io_context, std::atoi(argv[1]));
-
-  io_context.run();
+  catch (std::exception& e)
+  {
+    std::cerr << "Exception: " << e.what() << "\n";
+  }
 
   return 0;
 }
